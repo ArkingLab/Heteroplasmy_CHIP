@@ -1,0 +1,812 @@
+---
+title: "UKB - Heteroplasmy, CHIP, and MN"
+subtitle: "01 - descriptive analysis: Tables 1-2, Figures 1-3, Supplementary Table 4, and Supplementary Figure 9"  
+author: "Yun Soo Hong, Sergiu Pasca"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output: 
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false 
+      smooth_scroll: false 
+    pandoc_args: [
+    "--number-sections",
+    "--number-offset=0"
+    ]
+fontsize: 11pt              
+---
+
+# Set up  
+
+## Program description  
+* This program reads in the cleaned data set (`ukb_mthet_chip_dp3_2024_03_13.rds`), performs analysis in the "Mitochondrial heteroplasmy improves risk prediction for myeloid neoplasms" paper (Nature Communications, 2024), and provided the data used for generating tables and figures.   
+* This file contains
+  -   Table 1, Table 2, Figure 1, Figure 2, Figure 3, Supplementary Table 4, Supplementary Figure 1, and Supplementary Figure 9.    
+
+* Steps  
+  * Step 1: Read in data  
+  * Step 2: Settings    
+  * Step 3: Table 1  
+  * Step 4: Table 2  
+  * Step 5: Figure 1  
+  * Step 6: Figure 2  
+  * Step 7: Supplementary Table 4  
+  * Step 8: Supplementary Figure 1  
+  * Step 9: Supplementary Figure 9  
+
+## Version of R and packages  
+
+```{r analysis set up, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Load libraries  
+
+```{r analysis load libraries, echo = TRUE, message = FALSE}
+library(tidyverse)
+library(magrittr)
+library(lubridate)
+library(stringr)
+library(data.table)
+library(table1)
+```
+
+## Print out settings  
+
+```{r analysis print settings}
+options(tibble.print_max = 100)
+options(pillar.sigfig = 5)
+```
+
+# Load data  
+
+## All participants  
+
+```{r analysis load data ukb, include = FALSE}
+ukb <- 
+  readRDS("../data_cleaning/ukb_mthet_chip_dp3_2024_03_13.rds")
+
+ukb <- 
+  ukb |> 
+  mutate(
+    # factor variables  
+    age65_yn = factor(age65_yn),
+    mcv_cat = factor(mcv_cat), 
+    rdw_cat = factor(rdw_cat), 
+    anemia = factor(anemia), 
+    thrombocytopenia = factor(thrombocytopenia), 
+    neutropenia = factor(neutropenia),
+    cytopenia_yn = factor(cytopenia_yn),
+    prev_cancer_yn = factor(prev_cancer_yn)
+  )
+
+ukb <-
+  ukb |>
+  mutate(
+    chip_fct = factor(
+      chip_yn,
+      levels = c(0, 1), 
+      labels = c("CHIP (-)", "CHIP (+)")
+    ),
+    het_fct = factor(
+      het_yn, 
+      levels = c(0, 1), 
+      labels = c("Heteroplasmy (-)", "Heteroplasmy (+)")
+    )
+  )
+
+# CHIP-positive  
+ukb_chip <- 
+  ukb |>
+  filter(chip_yn == 1) |>
+  mutate(
+    # each component of CHRS  
+    high_risk_fct = droplevels(high_risk_fct),
+    single_dnmt3a_fct = droplevels(single_dnmt3a_fct),
+    mutation_n_fct = droplevels(mutation_n_fct), 
+    max_vaf_fct = droplevels(max_vaf_fct), 
+    chrs_cat = droplevels(chrs_cat),
+    ccus = droplevels(ccus),
+    
+    # MSS category, reduced
+    mss_cat3 = case_when(
+      mMSS < 0.51 ~ 0, 
+      mMSS >= 0.51 & mMSS < 1.52 ~ 1, 
+      mMSS >= 1.52 & !is.na(mMSS) ~ 2
+    ),
+    mss_cat3 = factor(
+      mss_cat3,
+      levels = c(0:2), 
+      labels = c("MSS <0.51", "MSS 0.51-1.52", "MSS 1.52+")
+    ),
+
+    # CHRS-M: CHRS scores + het_yn + mss_cat3    
+    chrs_het3 = (chrs + I(het_yn == 0)*1 + I(het_yn == 1)*1.5 + 
+                  I(mss_cat3 == "MSS <0.51")*1 + I(mss_cat3 == "MSS 0.51-1.52")*1.5 + I(mss_cat3 == "MSS 1.52+")*2),
+    chrs_het3 = as.numeric(chrs_het3),
+    
+    # CHRS-M categories: adding cutoff by 2 from CHRS  
+    chrs_het_cat3 = case_when(
+      chrs_het3 <= 11.5 ~ 0,  
+      chrs_het3 >= 12 & chrs_het3 <= 14 ~ 1, 
+      chrs_het3 >= 14.5 ~ 2
+    ), 
+    chrs_het_cat3 = factor(
+      chrs_het_cat3, 
+      levels = c(0:2), 
+      labels = c("low", "intermediate", "high")
+    )
+  )
+```
+
+## CHIP variants  
+
+```{r analysis load data chip_var, include = FALSE}
+chip_var <- readRDS("/../../../../../../../../../../dcs04/arking/data/active/projects/CHIP/UKB_CHIP/Preliminary_CHIP_vars/WES/ukb_chip_vars_500k_dp3_2024_02_29.rds")
+
+chip_var <-
+  chip_var |>
+  mutate(
+    VAF = VAF_adj, 
+    newVAF = VAF_adj
+  ) 
+```
+
+# Settings   
+
+## Descriptive tables  
+
+### Labels and units in all participants    
+
+```{r analysis labels ukb}
+# Labels  
+label(ukb$age)          <- "Age"
+label(ukb$sex)          <- "Sex"
+label(ukb$race_new)     <- "Self-reported race"
+label(ukb$smk_ever)       <- "Ever smoker"
+label(ukb$anemia)       <- "Anemia"
+label(ukb$thrombocytopenia)   <- "Thrombocytopenia"
+label(ukb$neutropenia)        <- "Neutropenia"
+label(ukb$cytopenia_yn)       <- "Cytopenia"
+label(ukb$mcv)       <- "Mean corpuscular volume"
+label(ukb$rbcdw)     <- "Red cell distribution width"
+label(ukb$prev_cancer_yn)     <- "History of cancer"
+label(ukb$het_fct)    <- "Heteroplasmy (+)"
+label(ukb$chip_fct)   <- "CHIP (+)"
+label(ukb$count_het) <- "Heteroplasmy count"
+label(ukb$mMSS)      <- "mMSS"
+label(ukb$age65_yn)  <- "Age 65+"
+label(ukb$ccus)      <- "CCUS"
+label(ukb$rdw_cat)   <- "RDW 15+"
+label(ukb$mcv_cat)   <- "MCV 100+"
+label(ukb$high_risk_fct) <- "High-risk mutation"
+label(ukb$single_dnmt3a_fct) <- "Single DNMT3A"
+label(ukb$mutation_n_fct) <- "Number of mutations 2+"
+label(ukb$max_vaf_fct) <- "VAF 20+"
+
+# Units 
+units(ukb$age)       <- "years"
+units(ukb$sex)       <- "%"
+units(ukb$race_new)  <- "%"
+units(ukb$smk_ever)  <- "%"
+units(ukb$anemia)    <- "%"
+units(ukb$thrombocytopenia)   <- "%"
+units(ukb$neutropenia)        <- "%"
+units(ukb$cytopenia_yn)       <- "%"
+units(ukb$mcv)       <- "fL"
+units(ukb$rbcdw)     <- "%"
+units(ukb$prev_cancer_yn)     <- "%"
+units(ukb$het_fct)    <- "%"
+units(ukb$chip_fct)   <- "%"
+units(ukb$count_het) <- ""
+units(ukb$mMSS)      <- ""
+units(ukb$age65_yn)  <- "%"
+units(ukb$ccus)      <- "%"
+units(ukb$rdw_cat)   <- "%"
+units(ukb$mcv_cat)   <- "%"
+units(ukb$high_risk_fct) <- "%"
+units(ukb$single_dnmt3a_fct) <- "%"
+units(ukb$mutation_n_fct) <- "%"
+units(ukb$max_vaf_fct) <- "%"
+```
+
+### Labels and units in CHIP (+) participants      
+
+```{r analysis labels ukb_chip}
+# Labels  
+label(ukb_chip$age)          <- "Age"
+label(ukb_chip$sex)          <- "Sex"
+label(ukb_chip$race_new)     <- "Self-reported race"
+label(ukb_chip$smk_ever)       <- "Ever smoker"
+label(ukb_chip$anemia)       <- "Anemia"
+label(ukb_chip$thrombocytopenia)   <- "Thrombocytopenia"
+label(ukb_chip$neutropenia)        <- "Neutropenia"
+label(ukb_chip$cytopenia_yn)       <- "Cytopenia"
+label(ukb_chip$mcv)       <- "Mean corpuscular volume"
+label(ukb_chip$rbcdw)     <- "Red cell distribution width"
+label(ukb_chip$prev_cancer_yn)     <- "History of cancer"
+label(ukb_chip$het_fct)    <- "Heteroplasmy (+)"
+label(ukb_chip$chip_fct)   <- "CHIP (+)"
+label(ukb_chip$count_het) <- "Heteroplasmy count"
+label(ukb_chip$mMSS)      <- "mMSS"
+label(ukb_chip$age65_yn)  <- "Age 65+"
+label(ukb_chip$ccus)      <- "CCUS"
+label(ukb_chip$rdw_cat)   <- "RDW 15+"
+label(ukb_chip$mcv_cat)   <- "MCV 100+"
+label(ukb_chip$high_risk_fct) <- "High-risk mutation"
+label(ukb_chip$single_dnmt3a_fct) <- "Single DNMT3A"
+label(ukb_chip$mutation_n_fct) <- "Number of mutations 2+"
+label(ukb_chip$max_vaf_fct) <- "VAF 20+"
+
+# Units 
+units(ukb_chip$age)       <- "years"
+units(ukb_chip$sex)       <- "%"
+units(ukb_chip$race_new)  <- "%"
+units(ukb_chip$smk_ever)  <- "%"
+units(ukb_chip$anemia)    <- "%"
+units(ukb_chip$thrombocytopenia)   <- "%"
+units(ukb_chip$neutropenia)        <- "%"
+units(ukb_chip$cytopenia_yn)       <- "%"
+units(ukb_chip$mcv)       <- "fL"
+units(ukb_chip$rbcdw)     <- "%"
+units(ukb_chip$prev_cancer_yn)     <- "%"
+units(ukb_chip$het_fct)    <- "%"
+units(ukb_chip$chip_fct)   <- "%"
+units(ukb_chip$age65_yn)  <- "%"
+units(ukb_chip$ccus)      <- "%"
+units(ukb_chip$rdw_cat)   <- "%"
+units(ukb_chip$mcv_cat)   <- "%"
+units(ukb_chip$high_risk_fct) <- "%"
+units(ukb_chip$single_dnmt3a_fct) <- "%"
+units(ukb_chip$mutation_n_fct) <- "%"
+units(ukb_chip$max_vaf_fct) <- "%"
+```
+
+## Function  
+
+```{r analysis table1 function}
+# function for continuous variables  
+my.render.cont <- function(x) {
+  with(stats.apply.rounding(stats.default(x), digits = 4), 
+       c("", "Mean (SD)" = sprintf("%s (&plusmn; %s)", MEAN, SD)))
+}
+
+my.render.cont <- 
+  function(x) {
+    with(
+      stats.apply.rounding(stats.default(x), digits = 4),
+      c("", "Mean (SD)" = sprintf("%s (&plusmn; %s)", MEAN, SD))
+    )
+  }
+
+# function for categorical variables  
+my.render.cat <-
+  function(x) {
+    c("",
+      sapply(
+        stats.default(x), 
+        function(y) 
+          with(y, sprintf("%d (%0.1f %%)", FREQ, PCT))
+      )
+    )
+  }
+
+# function for p-values  
+pvalue <- 
+  function(x, ...) {
+    y <- unlist(x)
+    g <- factor(
+      rep(1:length(x),
+          times = sapply(x, length))
+      )
+    if (is.numeric(y)) {
+      p <- summary(lm(y ~ as.numeric(g)))$coefficients[, 4][2]
+    } else {
+      p <- chisq.test(table(y, g))$p.value
+    }
+    c("", sub("<", "&lt;", format.pval(p, digits = 4, eps = 0.0001)))
+  }
+```
+
+# Table 1 - Participant characteristics by presence of CHIP in each cohort.     
+
+```{r analysis table 1}
+table1::table1(
+  ~ age + sex + race_new + smk_ever + anemia + thrombocytopenia + neutropenia + cytopenia_yn + mcv + rbcdw + prev_cancer_yn + het_fct | 
+  chip_fct,
+  data = ukb, 
+  overall = F, 
+  render.continuous = my.render.cont, 
+  extra.col = list(`P value` = pvalue)
+  )
+```
+
+# Table 2 - Participant characteristics by the presence of heteroplasmy in each cohort.    
+
+```{r analysis table 2}
+table1::table1(
+  ~ age + sex + race_new + smk_ever + anemia + thrombocytopenia + neutropenia + cytopenia_yn + mcv + rbcdw + prev_cancer_yn + chip_fct | 
+  het_fct,
+  data = ukb, 
+  overall = F, 
+  render.continuous = my.render.cont, 
+  extra.col = list(`P value` = pvalue)
+  )
+```
+
+# Figure 1 - Description of CHIP mutations  
+
+## Figure 1a 
+
+```{r analysis figure 1a}
+gene_list <- c("DNMT3A", "TET2", "ASXL1", "PPM1D","TP53", "SRSF2", "SF3B1", "U2AF1")
+
+chip_fq_sum <- 
+  chip_var |> 
+  group_by(Gene.refGene) |> 
+  summarise(n = n()) |>
+  arrange(-n)
+
+fig1a <- 
+  chip_fq_sum |> 
+  filter(
+    Gene.refGene %in% gene_list
+  ) |>
+  mutate(
+    Gene.refGene = factor(
+      Gene.refGene, 
+      levels = rev(gene_list)
+    )
+  ) |>
+  ggplot() +
+  geom_col(aes(x = Gene.refGene, y = n)) +
+  theme_classic() +
+  coord_flip() +
+  scale_x_discrete("Gene") +
+  scale_y_continuous("Number of individuals")
+fig1a
+```
+
+## Figure 1c  
+
+```{r analysis figure 1c}
+fig1c <- chip_var |>
+  filter(Gene.refGene %in% gene_list) |>
+  mutate(
+    Gene.refGene = factor(
+      Gene.refGene, 
+      levels = rev(gene_list)
+    )
+  ) |>
+  ggplot() + 
+  geom_violin(aes(x = Gene.refGene, y = VAF), scale = "width") +
+  geom_boxplot(aes(x = Gene.refGene, y = VAF), alpha = 0, width = 0.15) + 
+  theme_classic() +
+  coord_flip() +
+  scale_x_discrete("Gene") +
+  scale_y_continuous("VAF", breaks = c(0, 25, 50, 75, 100),
+                     labels = paste0(c(0, 25, 50, 75, 100), "%"),
+                     limits = c(0, 100))
+fig1c
+```
+
+## Figure 1e  
+
+```{r analysis figure 1e}
+fig1e <- chip_var |>
+  group_by(SampID) |> 
+  summarise(
+    n = n()
+  ) |> 
+  ungroup() |>
+  mutate(n = ifelse(n > 3, 4, n)) |>
+  group_by(n) |> 
+  summarise(
+    obs = n()
+  ) |> 
+  ggplot() +
+  geom_col(aes(x = obs, y = reorder(n, -n))) +
+  theme_classic() +
+  scale_x_continuous("Number of individuals") +
+  scale_y_discrete("Number of mutations")
+fig1e
+```
+
+# Figure 2 - Description of heteroplasmy  
+
+## Figure 2a  
+
+```{r analysis figure 2a}
+ukb_hc_long <-
+  ukb |>
+  dplyr::select(id, starts_with("hetcount_complex_")) |>
+  pivot_longer(
+    cols = !id, 
+    names_to = "variable", 
+    values_to = "value"
+  ) |>
+  mutate(
+    complex = str_remove(variable, "hetcount_complex_")
+  )
+
+fig2a <- 
+  ukb_hc_long |>
+  filter(value != 0) |> 
+  group_by(variable) |> 
+  summarise(n = n()) |>
+  mutate(
+    variable = str_remove(variable, "hetcount_complex_"), 
+    variable = factor(
+      variable, 
+      levels = rev(c("I", "III", "IV", "V", "DLOOP", "RRNA", "TRNA")), 
+      labels = rev(c("I", "III", "IV", "V", "D-loop", "rRNA", "tRNA"))
+    )
+  ) |>
+  ggplot() +
+  geom_col(aes(x = n, y = variable)) +
+  theme_classic() +
+  scale_x_continuous("Number of individuals") +
+  scale_y_discrete("Complex")
+fig2a
+```
+
+## Figure 2c  
+
+```{r analysis figure 2c}
+ukb_mss_long <-
+  ukb |>
+  dplyr::select(id, starts_with("mMSS_complex_")) |>
+  pivot_longer(
+    cols = !id, 
+    names_to = "variable_mss", 
+    values_to = "value_mss"
+  ) |>
+  mutate(
+    complex = str_remove(variable_mss, "mMSS_complex_")
+  ) |> 
+  left_join(ukb_hc_long, by = c("id", "complex"))
+
+ukb_mss_long |>
+  filter(value != 0) |> 
+  mutate(
+    variable_mss = str_remove(variable_mss, "mMSS_complex_"), 
+    variable_mss = factor(
+      variable_mss, 
+      levels = rev(c("I", "III", "IV", "V", "DLOOP", "RRNA", "TRNA")), 
+      labels = rev(c("I", "III", "IV", "V", "D-loop", "rRNA", "tRNA"))
+    )
+  ) |>
+  ggplot() + 
+  geom_violin(aes(x = value_mss, y = variable_mss), scale = "width") + 
+  geom_boxplot(aes(x = value_mss, y = variable_mss), alpha = 0, width = 0.15) +
+  theme_classic() +
+  scale_x_continuous("mMSS", breaks = c(0, 0.5, 1, 1.5, 2)) +
+  scale_y_discrete("Complex") +
+  coord_cartesian(xlim = c(0, 2))
+```
+
+## Figure 2e  
+
+```{r analysis figure 2e}
+ukb |> 
+  group_by(count_het) |> 
+  summarise(
+    n = n()
+  ) |> 
+  ungroup() |>
+  filter(count_het != 0) |> 
+  ggplot() + 
+  geom_col(aes(x = n, y = reorder(count_het, -count_het))) +
+  theme_classic() +
+  scale_x_continuous("Number of individuals") +
+  scale_y_discrete("Number of heteroplasmies")
+```
+
+# Figure 3 - Association between CHIP and heteroplasmy  
+
+## Figure 3a  
+
+```{r analysis figure 3a}
+ukb |> 
+  janitor::tabyl(chip_yn, het_yn) |>
+  janitor::adorn_percentages("all") |> 
+  janitor::adorn_pct_formatting(digits = 2) |>
+  janitor::adorn_ns()
+```
+
+## Figure 3c
+
+```{r analysis figure 3c}
+# No CHIP vs. CHIP
+ukb |>
+  janitor::tabyl(chip_yn, het_yn)
+glm(het_yn ~ chip_yn + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, family = binomial) |> 
+  summary()
+
+# 2% <= VAF < 20% vs. VAF >= 20%
+ukb |>
+  filter(max_vaf_cat != 0) |> 
+  janitor::tabyl(max_vaf_cat, het_yn)
+glm(het_yn ~ max_vaf_cat + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = max_vaf_cat != 0, family = binomial) |> 
+  summary()
+
+# Single vs. multiple mutations  
+ukb <- 
+  ukb |>
+  mutate(chip_multi = ifelse(chip_count <= 1, 0, 1)) 
+
+ukb |>
+  filter(chip_yn == 1) |> 
+  janitor::tabyl(chip_multi, het_yn)
+glm(het_yn ~ chip_multi + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = chip_yn == 1, family = binomial) |> 
+  summary()
+
+# By gene
+ukb |> 
+  janitor::tabyl(DNMT3A, het_yn)
+ukb |> 
+  janitor::tabyl(TET2, het_yn)
+ukb |> 
+  janitor::tabyl(ASXL1, het_yn)
+ukb |> 
+  janitor::tabyl(PPM1D, het_yn)
+ukb |> 
+  janitor::tabyl(TP53, het_yn)
+ukb |> 
+  janitor::tabyl(SRSF2, het_yn)
+ukb |> 
+  janitor::tabyl(SF3B1, het_yn)
+ukb |> 
+  janitor::tabyl(U2AF1, het_yn)
+
+ukb <- 
+  ukb |>
+  mutate(
+    splice = ifelse(SRSF2 == 1 | SF3B1 == 1 | U2AF1 == 1, 1, 0)
+  )
+glm(het_yn ~ splice + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, family = binomial) |> 
+  summary()
+glm(het_yn ~ splice + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = chip_yn == 1, family = binomial) |> 
+  summary()
+```
+
+## Figure 3e
+
+```{r analysis figure 3e}
+ukb <- 
+  ukb |> 
+  mutate(
+    multi_het = ifelse(count_het >=2, 1, 0)
+  )
+
+# No CHIP vs. CHIP
+ukb |>
+  janitor::tabyl(chip_yn, multi_het)
+glm(multi_het ~ chip_yn + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, family = binomial) |> 
+  summary()
+
+# 2% <= VAF < 20% vs. VAF >= 20%
+ukb |>
+  filter(max_vaf_cat != 0) |> 
+  janitor::tabyl(max_vaf_cat, multi_het)
+glm(multi_het ~ max_vaf_cat + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = max_vaf_cat != 0, family = binomial) |> 
+  summary()
+
+# Single vs. multiple mutations  
+ukb |> 
+  filter(chip_yn == 1) |> 
+  janitor::tabyl(chip_multi, multi_het)
+glm(multi_het ~ chip_multi + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = chip_yn == 1, family = binomial) |> 
+  summary()
+
+# By gene
+ukb |> 
+  janitor::tabyl(DNMT3A, multi_het)
+ukb |> 
+  janitor::tabyl(TET2, multi_het)
+ukb |> 
+  janitor::tabyl(ASXL1, multi_het)
+ukb |> 
+  janitor::tabyl(PPM1D, multi_het)
+ukb |> 
+  janitor::tabyl(TP53, multi_het)
+ukb |> 
+  janitor::tabyl(SRSF2, multi_het)
+ukb |> 
+  janitor::tabyl(SF3B1, multi_het)
+ukb |> 
+  janitor::tabyl(U2AF1, multi_het)
+
+glm(multi_het ~ splice + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, family = binomial) |> 
+  summary()
+glm(multi_het ~ splice + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = chip_yn == 1, family = binomial) |> 
+  summary()
+```
+
+## Figure 3g
+
+```{r analysis figure 3g}
+ukb <- 
+  ukb |> 
+  mutate(
+    log_mMSS = log10(mMSS + 1)
+  )
+
+# No CHIP vs. CHIP
+glm(log_mMSS ~ chip_yn + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb) |> 
+  summary()
+
+# 2% <= VAF < 20% vs. VAF >= 20%
+glm(log_mMSS ~ max_vaf_cat + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = max_vaf_cat != 0) |> 
+  summary()
+
+# Single vs. multiple mutations  
+glm(log_mMSS ~ chip_multi + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = chip_yn == 1) |> 
+  summary()
+
+# By gene
+glm(log_mMSS ~ splice + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb) |> 
+  summary()
+glm(log_mMSS ~ splice + rms::rcs(age, 5) + sex + smk_ever + prev_cancer_yn, data = ukb, subset = chip_yn == 1) |> 
+  summary()
+```
+
+# Supplementary Table 4 - Participant characteristics stratified by CHRS category in the UK Biobank.      
+
+```{r analysis suppl table 4}
+table1::table1(
+  ~ age + sex + race_new + smk_ever + age65_yn + ccus + rdw_cat + mcv_cat + high_risk_fct + single_dnmt3a_fct + mutation_n_fct + max_vaf_fct + 
+    count_het + mMSS | 
+  chrs_cat,
+  data = ukb_chip, 
+  overall = F, 
+  render.continuous = my.render.cont, 
+  extra.col = list(`P value` = pvalue)
+  )
+
+# Heteroplasmy count: Q1, Q2, Q3
+ukb_chip |> 
+  group_by(chrs_cat) |>
+  summarise(
+    
+    median = median(count_het), 
+    p25 = quantile(count_het, probs = 0.25),
+    p75 = quantile(count_het, probs = 0.75)
+  )
+chisq.test(ukb_chip$chrs_cat, ukb_chip$count_het, correct=FALSE)
+
+# mMSS: Q1, Q2, Q3
+ukb_chip |> 
+  group_by(chrs_cat) |>
+  summarise(
+    median = median(mMSS), 
+    p25 = quantile(mMSS, probs = 0.25),
+    p75 = quantile(mMSS, probs = 0.75)
+  )
+aov(mMSS ~ chrs_cat, data = ukb_chip) |>
+  summary()
+```
+
+# Supplementary Figure 1 - Representation of the first 15 most frequently mutated genes  
+
+```{r analysis suppl figure 1a}
+chip_fq_sum |>
+  filter(row_number() <= 15) |>
+  ggplot() +
+  geom_col(aes(x = reorder(Gene.refGene, n), y = n)) +
+  theme_classic() +
+  coord_flip() + 
+  scale_x_discrete("Gene") +
+  scale_y_continuous("Number of individuals")
+```
+
+# Supplementary Figure 9 - Distribution of heteroplasmy count and mMSS by CHRS category in the UKB.  
+
+## Panel A  
+
+```{r analysis suppl figure 9 a}
+count <- 
+  ukb |>
+  filter(chip_yn == 1) |>
+  mutate(
+    count_het_cat = forcats::fct_rev(count_het_cat)
+  ) |> 
+  ggplot() +  
+  geom_bar(aes(x = chrs_cat, fill = count_het_cat), position = "fill") +
+  scale_x_discrete("CHRS category", labels=c("low" = "Low", "intermediate" = "Intermediate", "high" = "High")) +
+  scale_y_continuous(
+    "Proportion", 
+    breaks = c(0, 0.25, 0.5, 0.75, 1), 
+    labels = c("0", "0.25", "0.50", "0.75", "1.0"), 
+    limits = c(0, 1.01), 
+    expand = c(0, 0)
+  ) + 
+  scale_fill_brewer("Heteroplasmy count", labels = c("4+", "3", "2", "1", "0"), palette = "Set1") +
+  coord_flip() +
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        axis.text.y = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1, reverse = TRUE))
+count
+
+count_table <- 
+  ukb_chip |>
+  filter(chip_yn == 1) |>
+  janitor::tabyl(count_het_cat, chrs_cat) |>
+  janitor::adorn_percentages() |>
+  janitor::adorn_ns() |>
+  rename(
+    Metric = count_het_cat
+  )
+```
+
+## Panel B  
+
+```{r analysis suppl figure 9 b}
+mss <- 
+  ukb |>
+  filter(chip_yn == 1) |>
+  ggplot() +
+  geom_boxplot(aes(x = chrs_cat, y = mMSS, fill = chrs_cat)) +
+  coord_flip() +
+  geom_jitter(aes(x = chrs_cat, y = mMSS, color = chrs_cat), size = 0.1, width = 0.05, alpha = 0.5) +
+  scale_x_discrete("", labels=c("low" = "Low", "intermediate" = "Intermediate", "high" = "High")) +
+  scale_y_continuous("mMSS") + 
+  scale_color_manual(
+    "CHRS category", 
+    labels = c("Low", "Intermediate", "High"), 
+    values = c("#00A087FF", "#191970", "#E64835FF")
+  ) + 
+  scale_fill_manual(
+    "CHRS category", 
+    labels = c("Low", "Intermediate", "High"), 
+    values = c("#00A087FF", "#191970", "#E64835FF")
+  ) + 
+  guides(color = "none") +
+  theme_classic() + 
+  theme(legend.position = "bottom",
+        axis.text.y = element_text(angle = 45, vjust = 0.5, hjust=1)) +
+  guides(fill = guide_legend(title.position = "top", title.hjust = 0.5, nrow = 1))
+mss
+
+mss_table <- 
+  ukb_chip |>
+  group_by(chrs_cat) |>
+  summarise(
+    min = min(mMSS), 
+    q1 = quantile(mMSS, 0.25),
+    median = median(mMSS), 
+    q3 = quantile(mMSS, 0.75), 
+    max = max(mMSS)
+  ) |>
+  t() |>
+  as.data.frame() |>
+  rownames_to_column() |>
+  rename(
+    Metric = rowname, 
+    low = V1, 
+    intermediate = V2, 
+    high = V3
+  ) |>
+  filter(Metric != "chrs_cat")
+```
+
+## Combined  
+
+```{r analysis suppl figure 9, fig.height = 6, fig.width = 15}
+combined <- ggpubr::ggarrange(count, mss, nrow = 1, labels = c("A", "B"), widths = c(1, 1))
+combined
+
+table <- 
+  count_table |>
+  bind_rows(mss_table) |>
+  add_row(.before = 1) |>
+  add_row(.before = 7) |>
+  mutate(
+    Metric = c("Heteroplasmy count", "0", "1", "2", "3", "4+", "mMSS", "Minimum", "Q2", "Median", "Q3", "Maximum")
+  )
+
+table |>
+  openxlsx::write.xlsx("ukb_mthet_chip_source_data_file_01_descriptive.xlsx", sheetName = "Supplementary Figure 9")
+```
+
